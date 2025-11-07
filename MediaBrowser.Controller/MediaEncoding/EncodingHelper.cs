@@ -45,6 +45,13 @@ namespace MediaBrowser.Controller.MediaEncoding
         /// This regular expression matches strings representing a double.
         /// </summary>
         public const string LevelValidationRegex = @"-?[0-9]+(?:\.[0-9]+)?";
+        public const string ContainerValidationRegex = @"^[a-zA-Z0-9\-\._,|]{0,40}$";
+
+        /// <summary>
+        /// The level validation regex.
+        /// This regular expression matches strings representing a double.
+        /// </summary>
+        public const string LevelValidationRegex = @"-?[0-9]+(?:\.[0-9]+)?";
 
         private const string _defaultMjpegEncoder = "mjpeg";
 
@@ -86,6 +93,7 @@ namespace MediaBrowser.Controller.MediaEncoding
         private readonly Version _minFFmpegQsvVppScaleModeOption = new Version(6, 0);
         private readonly Version _minFFmpegRkmppHevcDecDoviRpu = new Version(7, 1, 1);
 
+        private static readonly Regex _containerValidationRegex = new(ContainerValidationRegex, RegexOptions.Compiled);
         private static readonly Regex _containerValidationRegex = new(ContainerValidationRegex, RegexOptions.Compiled);
 
         private static readonly string[] _videoProfilesH264 =
@@ -477,6 +485,7 @@ namespace MediaBrowser.Controller.MediaEncoding
                 }
 
                 if (_containerValidationRegex.IsMatch(codec))
+                if (_containerValidationRegex.IsMatch(codec))
                 {
                     return codec.ToLowerInvariant();
                 }
@@ -517,6 +526,7 @@ namespace MediaBrowser.Controller.MediaEncoding
 
         public static string GetInputFormat(string container)
         {
+            if (string.IsNullOrEmpty(container) || !_containerValidationRegex.IsMatch(container))
             if (string.IsNullOrEmpty(container) || !_containerValidationRegex.IsMatch(container))
             {
                 return null;
@@ -735,6 +745,7 @@ namespace MediaBrowser.Controller.MediaEncoding
         {
             var codec = state.OutputAudioCodec;
 
+            if (!_containerValidationRegex.IsMatch(codec))
             if (!_containerValidationRegex.IsMatch(codec))
             {
                 codec = "aac";
@@ -2273,6 +2284,13 @@ namespace MediaBrowser.Controller.MediaEncoding
                     // The following params are slower than the ultrafast preset, don't use when ultrafast is selected.
                     param += ":subme=3:merange=25:rc-lookahead=10:me=star:ctu=32:max-tu-size=32:min-cu-size=16:rskip=2:rskip-edge-threshold=2:no-sao=1:no-strong-intra-smoothing=1";
                 }
+                param += " -x265-params:0 no-scenecut=1:no-open-gop=1:no-info=1";
+
+                if (encodingOptions.EncoderPreset < EncoderPreset.ultrafast)
+                {
+                    // The following params are slower than the ultrafast preset, don't use when ultrafast is selected.
+                    param += ":subme=3:merange=25:rc-lookahead=10:me=star:ctu=32:max-tu-size=32:min-cu-size=16:rskip=2:rskip-edge-threshold=2:no-sao=1:no-strong-intra-smoothing=1";
+                }
             }
 
             if (string.Equals(videoEncoder, "libsvtav1", StringComparison.OrdinalIgnoreCase)
@@ -2427,7 +2445,10 @@ namespace MediaBrowser.Controller.MediaEncoding
             {
                 var videoFrameRate = videoStream.ReferenceFrameRate;
 
-                if (!videoFrameRate.HasValue || videoFrameRate.Value > requestedFramerate.Value)
+                // Add a little tolerance to the framerate check because some videos might record a framerate
+                // that is slightly greater than the intended framerate, but the device can still play it correctly.
+                // 0.05 fps tolerance should be safe enough.
+                if (!videoFrameRate.HasValue || videoFrameRate.Value > requestedFramerate.Value + 0.05f)
                 {
                     return false;
                 }
@@ -3565,6 +3586,7 @@ namespace MediaBrowser.Controller.MediaEncoding
                     && options.VppTonemappingBrightness <= 100)
                 {
                     procampParams += "procamp_vaapi=b={0}";
+                    procampParams += "procamp_vaapi=b={0}";
                     doVaVppProcamp = true;
                 }
 
@@ -3572,14 +3594,19 @@ namespace MediaBrowser.Controller.MediaEncoding
                     && options.VppTonemappingContrast <= 10)
                 {
                     procampParams += doVaVppProcamp ? ":c={1}" : "procamp_vaapi=c={1}";
+                    procampParams += doVaVppProcamp ? ":c={1}" : "procamp_vaapi=c={1}";
                     doVaVppProcamp = true;
                 }
 
+                args = procampParams + "{2}tonemap_vaapi=format={3}:p=bt709:t=bt709:m=bt709:extra_hw_frames=32";
                 args = procampParams + "{2}tonemap_vaapi=format={3}:p=bt709:t=bt709:m=bt709:extra_hw_frames=32";
 
                 return string.Format(
                         CultureInfo.InvariantCulture,
                         args,
+                        options.VppTonemappingBrightness,
+                        options.VppTonemappingContrast,
+                        doVaVppProcamp ? "," : string.Empty,
                         options.VppTonemappingBrightness,
                         options.VppTonemappingContrast,
                         doVaVppProcamp ? "," : string.Empty,
@@ -3771,15 +3798,29 @@ namespace MediaBrowser.Controller.MediaEncoding
                 // tonemapx requires yuv420p10 input for dovi reshaping, let ffmpeg convert the frame when necessary
                 var tonemapFormat = requireDoviReshaping ? "yuv420p" : outFormat;
                 var tonemapArgString = "tonemapx=tonemap={0}:desat={1}:peak={2}:t=bt709:m=bt709:p=bt709:format={3}";
+                var tonemapArgString = "tonemapx=tonemap={0}:desat={1}:peak={2}:t=bt709:m=bt709:p=bt709:format={3}";
 
                 if (options.TonemappingParam != 0)
                 {
+                    tonemapArgString += ":param={4}";
                     tonemapArgString += ":param={4}";
                 }
 
                 var range = options.TonemappingRange;
                 if (range == TonemappingRange.tv || range == TonemappingRange.pc)
                 {
+                    tonemapArgString += ":range={5}";
+                }
+
+                var tonemapArgs = string.Format(
+                    CultureInfo.InvariantCulture,
+                    tonemapArgString,
+                    options.TonemappingAlgorithm,
+                    options.TonemappingDesat,
+                    options.TonemappingPeak,
+                    tonemapFormat,
+                    options.TonemappingParam,
+                    options.TonemappingRange);
                     tonemapArgString += ":range={5}";
                 }
 
@@ -4398,6 +4439,7 @@ namespace MediaBrowser.Controller.MediaEncoding
             {
                 var isRext = IsVideoStreamHevcRext(state);
                 var twoPassVppTonemap = false;
+                var twoPassVppTonemap = false;
                 var doVppFullRangeOut = isMjpegEncoder
                     && _mediaEncoder.EncoderVersion >= _minFFmpegQsvVppOutRangeOption;
                 var doVppScaleModeHq = isMjpegEncoder
@@ -4405,8 +4447,15 @@ namespace MediaBrowser.Controller.MediaEncoding
                 var doVppProcamp = false;
                 var procampParams = string.Empty;
                 var procampParamsString = string.Empty;
+                var procampParamsString = string.Empty;
                 if (doVppTonemap)
                 {
+                    if (isRext)
+                    {
+                        // VPP tonemap requires p010 input
+                        twoPassVppTonemap = true;
+                    }
+
                     if (isRext)
                     {
                         // VPP tonemap requires p010 input
@@ -4418,6 +4467,7 @@ namespace MediaBrowser.Controller.MediaEncoding
                         && options.VppTonemappingBrightness <= 100)
                     {
                         procampParamsString += ":brightness={0}";
+                        procampParamsString += ":brightness={0}";
                         twoPassVppTonemap = doVppProcamp = true;
                     }
 
@@ -4425,9 +4475,19 @@ namespace MediaBrowser.Controller.MediaEncoding
                         && options.VppTonemappingContrast <= 10)
                     {
                         procampParamsString += ":contrast={1}";
+                        procampParamsString += ":contrast={1}";
                         twoPassVppTonemap = doVppProcamp = true;
                     }
 
+                    if (doVppProcamp)
+                    {
+                        procampParamsString += ":procamp=1:async_depth=2";
+                        procampParams = string.Format(
+                            CultureInfo.InvariantCulture,
+                            procampParamsString,
+                            options.VppTonemappingBrightness,
+                            options.VppTonemappingContrast);
+                    }
                     if (doVppProcamp)
                     {
                         procampParamsString += ":procamp=1:async_depth=2";
@@ -5953,7 +6013,11 @@ namespace MediaBrowser.Controller.MediaEncoding
                     if (!string.IsNullOrEmpty(doScaling)
                         && !IsScaleRatioSupported(inW, inH, reqW, reqH, reqMaxW, reqMaxH, 8.0f))
                     {
-                        var hwScaleFilterFirstPass = $"scale_rkrga=w=iw/7.9:h=ih/7.9:format={outFormat}:afbc=1";
+                        // Vendor provided BSP kernel has an RGA driver bug that causes the output to be corrupted for P010 format.
+                        // Use NV15 instead of P010 to avoid the issue.
+                        // SDR inputs are using BGRA formats already which is not affected.
+                        var intermediateFormat = string.Equals(outFormat, "p010", StringComparison.OrdinalIgnoreCase) ? "nv15" : outFormat;
+                        var hwScaleFilterFirstPass = $"scale_rkrga=w=iw/7.9:h=ih/7.9:format={intermediateFormat}:force_original_aspect_ratio=increase:force_divisible_by=4:afbc=1";
                         mainFilters.Add(hwScaleFilterFirstPass);
                     }
 
@@ -7345,6 +7409,7 @@ namespace MediaBrowser.Controller.MediaEncoding
             {
                 // DTS and TrueHD are not supported by HLS
                 // Keep them in the supported codecs list, but shift them to the end of the list so that if transcoding happens, another codec is used
+                shiftAudioCodecs.Add("dts");
                 shiftAudioCodecs.Add("dts");
                 shiftAudioCodecs.Add("truehd");
             }

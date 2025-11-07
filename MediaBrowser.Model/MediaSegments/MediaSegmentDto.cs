@@ -23,6 +23,7 @@ public class MediaSegmentDto
     /// Gets or sets the type of content this segment defines.
     /// </summary>
     [DefaultValue(MediaSegmentType.Unknown)]
+    [DefaultValue(MediaSegmentType.Unknown)]
     public MediaSegmentType Type { get; set; }
 
     /// <summary>

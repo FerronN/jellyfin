@@ -225,6 +225,7 @@ public partial class AudioNormalizationTask : IScheduledTask
     }
 
     private async Task<float?> CalculateLUFSAsync(string inputArgs, bool waitForExit, CancellationToken cancellationToken)
+    private async Task<float?> CalculateLUFSAsync(string inputArgs, bool waitForExit, CancellationToken cancellationToken)
     {
         var args = $"-hide_banner {inputArgs} -af ebur128=framelog=verbose -f null -";
 
@@ -279,6 +280,17 @@ public partial class AudioNormalizationTask : IScheduledTask
                 foundLufs = true;
             }
 
+            if (lufs is null)
+            {
+                _logger.LogError("Failed to find LUFS value in output");
+            }
+
+            if (waitForExit)
+            {
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return lufs;
             if (lufs is null)
             {
                 _logger.LogError("Failed to find LUFS value in output");

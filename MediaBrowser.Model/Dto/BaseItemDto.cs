@@ -588,6 +588,7 @@ namespace MediaBrowser.Model.Dto
         /// </summary>
         /// <value>The type of the media.</value>
         [DefaultValue(MediaType.Unknown)]
+        [DefaultValue(MediaType.Unknown)]
         public MediaType MediaType { get; set; }
 
         /// <summary>

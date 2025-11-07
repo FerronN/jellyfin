@@ -2427,10 +2427,7 @@ namespace MediaBrowser.Controller.MediaEncoding
             {
                 var videoFrameRate = videoStream.ReferenceFrameRate;
 
-                // Add a little tolerance to the framerate check because some videos might record a framerate
-                // that is slightly greater than the intended framerate, but the device can still play it correctly.
-                // 0.05 fps tolerance should be safe enough.
-                if (!videoFrameRate.HasValue || videoFrameRate.Value > requestedFramerate.Value + 0.05f)
+                if (!videoFrameRate.HasValue || videoFrameRate.Value > requestedFramerate.Value)
                 {
                     return false;
                 }
@@ -5956,11 +5953,7 @@ namespace MediaBrowser.Controller.MediaEncoding
                     if (!string.IsNullOrEmpty(doScaling)
                         && !IsScaleRatioSupported(inW, inH, reqW, reqH, reqMaxW, reqMaxH, 8.0f))
                     {
-                        // Vendor provided BSP kernel has an RGA driver bug that causes the output to be corrupted for P010 format.
-                        // Use NV15 instead of P010 to avoid the issue.
-                        // SDR inputs are using BGRA formats already which is not affected.
-                        var intermediateFormat = string.Equals(outFormat, "p010", StringComparison.OrdinalIgnoreCase) ? "nv15" : outFormat;
-                        var hwScaleFilterFirstPass = $"scale_rkrga=w=iw/7.9:h=ih/7.9:format={intermediateFormat}:force_original_aspect_ratio=increase:force_divisible_by=4:afbc=1";
+                        var hwScaleFilterFirstPass = $"scale_rkrga=w=iw/7.9:h=ih/7.9:format={outFormat}:afbc=1";
                         mainFilters.Add(hwScaleFilterFirstPass);
                     }
 

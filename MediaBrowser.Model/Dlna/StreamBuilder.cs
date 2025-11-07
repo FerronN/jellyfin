@@ -31,6 +31,7 @@ namespace MediaBrowser.Model.Dlna
         private static readonly string[] _supportedHlsVideoCodecs = ["h264", "hevc", "vp9", "av1"];
         private static readonly string[] _supportedHlsAudioCodecsTs = ["aac", "ac3", "eac3", "mp3"];
         private static readonly string[] _supportedHlsAudioCodecsMp4 = ["aac", "ac3", "eac3", "mp3", "alac", "flac", "opus", "dts", "truehd"];
+        private static readonly string[] _supportedHlsAudioCodecsMp4 = ["aac", "ac3", "eac3", "mp3", "alac", "flac", "opus", "dts", "truehd"];
 
         /// <summary>
         /// Initializes a new instance of the <see cref="StreamBuilder"/> class.
@@ -208,6 +209,14 @@ namespace MediaBrowser.Model.Dlna
 
                 var longBitrate = Math.Min(transcodingBitrate, playlistItem.AudioBitrate ?? transcodingBitrate);
                 playlistItem.AudioBitrate = longBitrate > int.MaxValue ? int.MaxValue : Convert.ToInt32(longBitrate);
+
+                // Pure audio transcoding does not support comma separated list of transcoding codec at the moment.
+                // So just use the AudioCodec as is would be safe enough as the _transcoderSupport.CanEncodeToAudioCodec
+                // would fail so this profile will not even be picked up.
+                if (playlistItem.AudioCodecs.Count == 0 && !string.IsNullOrWhiteSpace(transcodingProfile.AudioCodec))
+                {
+                    playlistItem.AudioCodecs = [transcodingProfile.AudioCodec];
+                }
 
                 // Pure audio transcoding does not support comma separated list of transcoding codec at the moment.
                 // So just use the AudioCodec as is would be safe enough as the _transcoderSupport.CanEncodeToAudioCodec
@@ -2197,9 +2206,24 @@ namespace MediaBrowser.Model.Dlna
         }
 
         private static bool IsAudioContainerSupported(DirectPlayProfile profile, MediaSourceInfo item)
+        private static bool IsAudioContainerSupported(DirectPlayProfile profile, MediaSourceInfo item)
         {
             // Check container type
             if (!profile.SupportsContainer(item.Container))
+            {
+                return false;
+            }
+
+            // Never direct play audio in matroska when the device only declare support for webm.
+            // The first check is not enough because mkv is assumed can be webm.
+            // See https://github.com/jellyfin/jellyfin/issues/13344
+            return !ContainerHelper.ContainsContainer("mkv", item.Container)
+                   || profile.SupportsContainer("mkv");
+        }
+
+        private static bool IsAudioDirectPlaySupported(DirectPlayProfile profile, MediaSourceInfo item, MediaStream audioStream)
+        {
+            if (!IsAudioContainerSupported(profile, item))
             {
                 return false;
             }
@@ -2233,7 +2257,16 @@ namespace MediaBrowser.Model.Dlna
             // Check container type, this should NOT be supported
             // If the container is supported, the file should be directly played
             if (IsAudioContainerSupported(profile, item))
+            if (IsAudioContainerSupported(profile, item))
             {
+                return false;
+            }
+
+            // Check audio codec, we cannot use the SupportsAudioCodec here
+            // Because that one assumes empty container supports all codec, which is just useless
+            string? audioCodec = audioStream?.Codec;
+            return string.Equals(profile.AudioCodec, audioCodec, StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(profile.Container, audioCodec, StringComparison.OrdinalIgnoreCase);
                 return false;
             }
 

@@ -280,6 +280,13 @@ namespace Emby.Server.Implementations.IO
                         {
                             _logger.LogError(ex, "Reading the file at {Path} failed due to a permissions exception.", fileInfo.FullName);
                         }
+                        catch (IOException ex)
+                        {
+                            // IOException generally means the file is not accessible due to filesystem issues
+                            // Catch this exception and mark the file as not exist to ignore it
+                            _logger.LogError(ex, "Reading the file at {Path} failed due to an IO Exception. Marking the file as not existing", fileInfo.FullName);
+                            result.Exists = false;
+                        }
                     }
                     else
                     {

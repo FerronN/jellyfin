@@ -48,6 +48,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
         {
             // The search query must either provide an episode number or date
             if (!searchInfo.IndexNumber.HasValue)
+            if (!searchInfo.IndexNumber.HasValue)
             {
                 return Enumerable.Empty<RemoteSearchResult>();
             }
@@ -98,8 +99,10 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.TV
             }
 
             var seasonNumber = info.ParentIndexNumber ?? 1;
+            var seasonNumber = info.ParentIndexNumber ?? 1;
             var episodeNumber = info.IndexNumber;
 
+            if (!episodeNumber.HasValue)
             if (!episodeNumber.HasValue)
             {
                 return metadataResult;

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Mime;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using AsyncKeyedLock;
@@ -208,6 +209,10 @@ namespace MediaBrowser.Providers.Manager
 
                 // some providers don't correctly report media type, extract from url if no extension found
                 if (contentType is null || contentType.Equals(MediaTypeNames.Application.Octet, StringComparison.OrdinalIgnoreCase))
+                }
+
+                // some providers don't correctly report media type, extract from url if no extension found
+                if (contentType is null || contentType.Equals(MediaTypeNames.Application.Octet, StringComparison.OrdinalIgnoreCase))
                 {
                     // Strip query parameters from url to get actual path.
                     contentType = MimeTypes.GetMimeType(new Uri(url).GetLeftPart(UriPartial.Path));
@@ -215,6 +220,7 @@ namespace MediaBrowser.Providers.Manager
 
                 if (!contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
                 {
+                    throw new HttpRequestException($"Request returned '{contentType}' instead of an image type", null, HttpStatusCode.NotFound);
                     throw new HttpRequestException($"Request returned '{contentType}' instead of an image type", null, HttpStatusCode.NotFound);
                 }
 
@@ -242,6 +248,7 @@ namespace MediaBrowser.Providers.Manager
         }
 
         /// <inheritdoc/>
+        public async Task SaveImage(BaseItem item, string source, string mimeType, ImageType type, int? imageIndex, bool? saveLocallyWithMedia, CancellationToken cancellationToken)
         public async Task SaveImage(BaseItem item, string source, string mimeType, ImageType type, int? imageIndex, bool? saveLocallyWithMedia, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(source))

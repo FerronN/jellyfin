@@ -15,7 +15,11 @@
   <PropertyGroup>
     <Authors>Jellyfin Contributors</Authors>
     <PackageId>Jellyfin.Extensions</PackageId>
+<<<<<<< HEAD
     <VersionPrefix>10.11.2</VersionPrefix>
+=======
+    <VersionPrefix>10.10.7</VersionPrefix>
+>>>>>>> origin/ft-dvr-resilience
     <RepositoryUrl>https://github.com/jellyfin/jellyfin</RepositoryUrl>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>

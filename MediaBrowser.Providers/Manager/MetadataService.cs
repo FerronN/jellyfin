@@ -1068,7 +1068,7 @@ namespace MediaBrowser.Providers.Manager
                 }
             }
 
-            if (replaceData || !target.PremiereDate.HasValue)
+            if (replaceData || !target.PremiereDate.HasValue || (IsYearOnlyDate(target.PremiereDate.Value) && source.PremiereDate.HasValue))
             {
                 target.PremiereDate = source.PremiereDate;
             }
@@ -1233,6 +1233,16 @@ namespace MediaBrowser.Providers.Manager
                     if (string.IsNullOrWhiteSpace(person.ImageUrl))
                     {
                         person.ImageUrl = personInSource.ImageUrl;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(personInSource.Role) && string.IsNullOrWhiteSpace(person.Role))
+                    {
+                        person.Role = personInSource.Role;
+                    }
+
+                    if (personInSource.SortOrder.HasValue && !person.SortOrder.HasValue)
+                    {
+                        person.SortOrder = personInSource.SortOrder;
                     }
 
                     if (!string.IsNullOrWhiteSpace(personInSource.Role) && string.IsNullOrWhiteSpace(person.Role))

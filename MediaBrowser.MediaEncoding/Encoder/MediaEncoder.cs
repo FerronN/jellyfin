@@ -133,6 +133,13 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 semaphoreCount = Environment.ProcessorCount;
             }
 
+            // Although the type is not nullable, this might still be null during unit tests
+            var semaphoreCount = serverConfig.Configuration?.ParallelImageEncodingLimit ?? 0;
+            if (semaphoreCount < 1)
+            {
+                semaphoreCount = Environment.ProcessorCount;
+            }
+
             _thumbnailResourcePool = new(semaphoreCount);
         }
 

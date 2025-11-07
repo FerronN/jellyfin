@@ -223,6 +223,11 @@ namespace Emby.Server.Implementations.Playlists
             newItems = newItems
                 .Where(i => !existingIds.Contains(i.Id))
                 .Distinct();
+            // Filter out duplicate items
+            var existingIds = playlist.LinkedChildren.Select(c => c.ItemId).ToHashSet();
+            newItems = newItems
+                .Where(i => !existingIds.Contains(i.Id))
+                .Distinct();
 
             // Create a list of the new linked children to add to the playlist
             var childrenToAdd = newItems
@@ -269,6 +274,7 @@ namespace Emby.Server.Implementations.Playlists
             var idList = entryIds.ToList();
 
             var removals = children.Where(i => idList.Contains(i.Item1.ItemId?.ToString("N", CultureInfo.InvariantCulture)));
+            var removals = children.Where(i => idList.Contains(i.Item1.ItemId?.ToString("N", CultureInfo.InvariantCulture)));
 
             playlist.LinkedChildren = children.Except(removals)
                 .Select(i => i.Item1)
@@ -303,12 +309,17 @@ namespace Emby.Server.Implementations.Playlists
             }
 
             var user = _userManager.GetUserById(callingUserId);
+            var user = _userManager.GetUserById(callingUserId);
             var children = playlist.GetManageableItems().ToList();
+            var accessibleChildren = children.Where(c => c.Item2.IsVisible(user)).ToArray();
             var accessibleChildren = children.Where(c => c.Item2.IsVisible(user)).ToArray();
 
             var oldIndexAll = children.FindIndex(i => string.Equals(entryId, i.Item1.ItemId?.ToString("N", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
             var oldIndexAccessible = accessibleChildren.FindIndex(i => string.Equals(entryId, i.Item1.ItemId?.ToString("N", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
+            var oldIndexAll = children.FindIndex(i => string.Equals(entryId, i.Item1.ItemId?.ToString("N", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
+            var oldIndexAccessible = accessibleChildren.FindIndex(i => string.Equals(entryId, i.Item1.ItemId?.ToString("N", CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase));
 
+            if (oldIndexAccessible == newIndex)
             if (oldIndexAccessible == newIndex)
             {
                 return;
@@ -336,6 +347,7 @@ namespace Emby.Server.Implementations.Playlists
             }
             else
             {
+                newList.Insert(adjustedNewIndex, item);
                 newList.Insert(adjustedNewIndex, item);
             }
 

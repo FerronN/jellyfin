@@ -11,6 +11,8 @@ using MediaBrowser.Controller.Streaming;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Retry;
 
 namespace Jellyfin.LiveTv.IO
 {
@@ -82,23 +84,41 @@ namespace Jellyfin.LiveTv.IO
         private async Task RecordFromMediaSource(MediaSourceInfo mediaSource, string targetFile, TimeSpan duration, Action onStarted, CancellationToken cancellationToken)
         {
             using var httpClient = _httpClientFactory.CreateClient(NamedClient.Default);
-            int maxRetries = 5;
-            int retry = 0;
+            const int MaxAttempts = 5;
+            var started = false;
 
             // The media source is infinite so we need to handle stopping ourselves
             using var durationToken = new CancellationTokenSource(duration);
             using var linkedCancellationToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, durationToken.Token);
             cancellationToken = linkedCancellationToken.Token;
 
-            while (!cancellationToken.IsCancellationRequested && retry < maxRetries)
-            {
-                try
+            var pipeline = new ResiliencePipelineBuilder()
+                .AddRetry(new RetryStrategyOptions
                 {
-                    using var response = await httpClient.GetAsync(mediaSource.Path, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-                    response.EnsureSuccessStatusCode();
+                    MaxRetryAttempts = MaxAttempts - 1,
+                    Delay = TimeSpan.FromSeconds(2),
+                    BackoffType = DelayBackoffType.Exponential,
+                    ShouldHandle = args => ValueTask.FromResult(
+                        args.Outcome.Exception is not null
+                        && !args.Context.CancellationToken.IsCancellationRequested),
+                    OnRetry = args =>
+                    {
+                        _logger.LogInformation(
+                            args.Outcome.Exception,
+                            "Stream error on attempt {AttemptNumber}. Retrying in {RetryDelay}...",
+                            args.AttemptNumber + 1,
+                            args.RetryDelay);
+                        return ValueTask.CompletedTask;
+                    }
+                })
+                .Build();
 
-                    // If response was successful, reset retry count
-                    retry = 0;
+            try
+            {
+                await pipeline.ExecuteAsync(async token =>
+                {
+                    using var response = await httpClient.GetAsync(mediaSource.Path, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
 
                     _logger.LogInformation("Opened recording stream from tuner provider");
 
@@ -108,32 +128,32 @@ namespace Jellyfin.LiveTv.IO
 
                     await using (output.ConfigureAwait(false))
                     {
-                        onStarted();
+                        if (!started)
+                        {
+                            onStarted();
+                            started = true;
+                        }
 
                         _logger.LogInformation("Copying recording stream to file {0}", targetFile);
 
                         await _streamHelper.CopyUntilCancelled(
-                            await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+                            await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false),
                             output,
                             IODefaults.CopyToBufferSize,
-                            cancellationToken).ConfigureAwait(false);
+                            token).ConfigureAwait(false);
 
                         _logger.LogInformation("Recording completed to file {0}", targetFile);
                     }
-                }
-                catch (Exception ex)
-                {
-                    retry++;
-                    if (retry >= maxRetries)
-                    {
-                        _logger.LogError("Stream failed permanently after retries. {0}", ex.Message);
-                        return;
-                    }
-
-                    int backoff = (int)Math.Pow(2, retry);
-                    _logger.LogInformation("Stream error: {Message}. Retrying in {Backoff}s...", ex.Message, backoff);
-                    await Task.Delay(TimeSpan.FromSeconds(backoff), cancellationToken).ConfigureAwait(false);
-                }
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Stream failed permanently after {AttemptCount} attempts", MaxAttempts);
+                throw new IOException($"The recording stream failed after {MaxAttempts} attempts.", ex);
             }
         }
 

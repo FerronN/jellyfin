@@ -98,6 +98,8 @@ namespace Jellyfin.LiveTv.IO
             byte[] buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
             try
             {
+                var emptyReadCount = 0;
+
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     try
@@ -106,7 +108,17 @@ namespace Jellyfin.LiveTv.IO
 
                         if (bytesRead == 0)
                         {
+                            emptyReadCount++;
+                            if (emptyReadCount >= 5)
+                            {
+                                throw new EndOfStreamException("The recording stream ended before cancellation was requested.");
+                            }
+
                             await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            emptyReadCount = 0;
                         }
                     }
                     catch (OperationCanceledException)
@@ -131,9 +143,8 @@ namespace Jellyfin.LiveTv.IO
         {
             int bytesRead;
             int totalBytesRead = 0;
-            using var bufferedStream = new BufferedStream(source, IODefaults.BufferStreamBufferSize);
 
-            while ((bytesRead = await bufferedStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) != 0)
+            while ((bytesRead = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) != 0)
             {
                 await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
 

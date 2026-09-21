@@ -22,9 +22,5 @@ namespace MediaBrowser.Model.IO
         /// </summary>
         public const int StreamWriterBufferSize = 1024;
 
-        /// <summary>
-        /// The default buffer stream buffer size.
-        /// </summary>
-        public const int BufferStreamBufferSize = 131072;
     }
 }

@@ -1,14 +1,17 @@
 #pragma warning disable CS1591
 
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
-using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 using Polly;
@@ -20,12 +23,14 @@ namespace Jellyfin.LiveTv.IO
     {
         private readonly ILogger _logger;
         private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IMediaEncoder _mediaEncoder;
         private readonly IStreamHelper _streamHelper;
 
-        public DirectRecorder(ILogger logger, IHttpClientFactory httpClientFactory, IStreamHelper streamHelper)
+        public DirectRecorder(ILogger logger, IHttpClientFactory httpClientFactory, IMediaEncoder mediaEncoder, IStreamHelper streamHelper)
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
+            _mediaEncoder = mediaEncoder;
             _streamHelper = streamHelper;
         }
 
@@ -91,6 +96,8 @@ namespace Jellyfin.LiveTv.IO
             using var durationToken = new CancellationTokenSource(duration);
             using var linkedCancellationToken = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, durationToken.Token);
             cancellationToken = linkedCancellationToken.Token;
+            var segmentDirectory = targetFile + ".segments-" + Guid.NewGuid().ToString("N");
+            var segments = new List<string>();
 
             var pipeline = new ResiliencePipelineBuilder()
                 .AddRetry(new RetryStrategyOptions
@@ -124,7 +131,9 @@ namespace Jellyfin.LiveTv.IO
 
                     Directory.CreateDirectory(Path.GetDirectoryName(targetFile) ?? throw new ArgumentException("Path can't be a root directory.", nameof(targetFile)));
 
-                    var output = new FileStream(targetFile, FileMode.Append, FileAccess.Write, FileShare.Read, IODefaults.CopyToBufferSize, FileOptions.Asynchronous);
+                    Directory.CreateDirectory(segmentDirectory);
+                    var segmentPath = Path.Combine(segmentDirectory, segments.Count.ToString("D4") + ".ts");
+                    var output = new FileStream(segmentPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, IODefaults.CopyToBufferSize, FileOptions.Asynchronous);
 
                     await using (output.ConfigureAwait(false))
                     {
@@ -136,25 +145,97 @@ namespace Jellyfin.LiveTv.IO
 
                         _logger.LogInformation("Copying recording stream to file {0}", targetFile);
 
-                        await _streamHelper.CopyUntilCancelled(
-                            await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false),
-                            output,
-                            IODefaults.CopyToBufferSize,
-                            token).ConfigureAwait(false);
+                        try
+                        {
+                            await _streamHelper.CopyUntilCancelled(
+                                await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false),
+                                output,
+                                IODefaults.CopyToBufferSize,
+                                token).ConfigureAwait(false);
+                            segments.Add(segmentPath);
+                        }
+                        catch
+                        {
+                            File.Delete(segmentPath);
+                            throw;
+                        }
 
                         _logger.LogInformation("Recording completed to file {0}", targetFile);
                     }
                 }, cancellationToken).ConfigureAwait(false);
+
+                await RemuxSegments(segments, segmentDirectory, targetFile, CancellationToken.None).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                await RemuxSegments(segments, segmentDirectory, targetFile, CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
             catch (Exception ex)
             {
+                await RemuxSegments(segments, segmentDirectory, targetFile, CancellationToken.None).ConfigureAwait(false);
                 _logger.LogError(ex, "Stream failed permanently after {AttemptCount} attempts", MaxAttempts);
                 throw new IOException($"The recording stream failed after {MaxAttempts} attempts.", ex);
             }
+            finally
+            {
+                if (Directory.Exists(segmentDirectory))
+                {
+                    Directory.Delete(segmentDirectory, true);
+                }
+            }
+        }
+
+        private async Task RemuxSegments(IReadOnlyList<string> segments, string segmentDirectory, string targetFile, CancellationToken cancellationToken)
+        {
+            if (segments.Count == 0)
+            {
+                return;
+            }
+
+            if (segments.Count == 1)
+            {
+                File.Move(segments[0], targetFile, true);
+                return;
+            }
+
+            var concatFile = Path.Combine(segmentDirectory, "segments.txt");
+            await using (var writer = new StreamWriter(concatFile, false, Encoding.UTF8))
+            {
+                foreach (var segment in segments)
+                {
+                    await writer.WriteLineAsync($"file '{segment.Replace("'", "'\\''", StringComparison.Ordinal)}'").ConfigureAwait(false);
+                }
+            }
+
+            var temporaryTarget = targetFile + ".remux-" + Guid.NewGuid().ToString("N") + ".ts";
+            var arguments = $"-hide_banner -f concat -safe 0 -i \"{concatFile}\" -map 0 -c copy -fflags +genpts -avoid_negative_ts make_non_negative -y \"{temporaryTarget}\"";
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = _mediaEncoder.EncoderPath,
+                    Arguments = arguments,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    StandardErrorEncoding = Encoding.UTF8,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    ErrorDialog = false
+                }
+            };
+
+            _logger.LogInformation("Remuxing recording with ffmpeg: {Arguments}", arguments);
+            process.Start();
+            await process.StandardError.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            if (process.ExitCode != 0)
+            {
+                File.Delete(temporaryTarget);
+                throw new InvalidOperationException($"FFmpeg failed to remux recording segments with exit code {process.ExitCode}.");
+            }
+
+            File.Move(temporaryTarget, targetFile, true);
         }
 
         /// <inheritdoc />

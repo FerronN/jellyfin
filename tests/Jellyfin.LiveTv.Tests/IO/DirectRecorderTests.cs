@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.LiveTv.IO;
 using MediaBrowser.Common.Net;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.IO;
@@ -68,6 +69,7 @@ public class DirectRecorderTests
             using var recorder = new DirectRecorder(
                 Mock.Of<ILogger>(),
                 httpClientFactory.Object,
+                Mock.Of<IMediaEncoder>(encoder => encoder.EncoderPath == "ffmpeg"),
                 streamHelper.Object);
 
             await recorder.Record(

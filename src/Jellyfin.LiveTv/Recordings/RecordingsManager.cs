@@ -797,7 +797,7 @@ public sealed class RecordingsManager : IRecordingsManager, IDisposable
             return new EncodedRecorder(_logger, _mediaEncoder, _config.ApplicationPaths, _config);
         }
 
-        return new DirectRecorder(_logger, _httpClientFactory, _streamHelper);
+        return new DirectRecorder(_logger, _httpClientFactory, _mediaEncoder, _streamHelper);
     }
 
     private async Task PostProcessRecording(string path)

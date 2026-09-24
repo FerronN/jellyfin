@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -12,6 +13,7 @@ using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 using Polly;
@@ -132,7 +134,7 @@ namespace Jellyfin.LiveTv.IO
                     Directory.CreateDirectory(Path.GetDirectoryName(targetFile) ?? throw new ArgumentException("Path can't be a root directory.", nameof(targetFile)));
 
                     Directory.CreateDirectory(segmentDirectory);
-                    var segmentPath = Path.Combine(segmentDirectory, segments.Count.ToString("D4") + ".ts");
+                    var segmentPath = Path.Combine(segmentDirectory, segments.Count.ToString("D4", CultureInfo.InvariantCulture) + ".ts");
                     var output = new FileStream(segmentPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read, IODefaults.CopyToBufferSize, FileOptions.Asynchronous);
 
                     await using (output.ConfigureAwait(false))
